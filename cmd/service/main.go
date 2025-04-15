@@ -5,37 +5,13 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"sync"
+
+	"nats-pg-service/internal/cache"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"github.com/nats-io/stan.go"
 )
-
-// Cache хранит данные в памяти
-type Cache struct {
-	data map[string]interface{}
-	mu   sync.RWMutex
-}
-
-func NewCache() *Cache {
-	return &Cache{
-		data: make(map[string]interface{}),
-	}
-}
-
-func (c *Cache) Set(id string, value interface{}) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.data[id] = value
-}
-
-func (c *Cache) Get(id string) (interface{}, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	v, ok := c.data[id]
-	return v, ok
-}
 
 func main() {
 	// Подключение к PostgreSQL
@@ -55,7 +31,7 @@ func main() {
 	defer sc.Close()
 
 	// Инициализация кэша
-	cache := NewCache()
+	cache := cache.NewCache()
 
 	// Восстановление кэша из БД
 	rows, err := db.Query(ctx, "SELECT message_id, data FROM messages")
@@ -70,9 +46,14 @@ func main() {
 			log.Printf("Failed to scan row: %v", err)
 			continue
 		}
-		cache.Set(messageID, data)
+		var msgData map[string]interface{}
+		if err := json.Unmarshal(data, &msgData); err != nil {
+			log.Printf("Failed to unmarshal data: %v", err)
+			continue
+		}
+		cache.Set(messageID, msgData)
 	}
-	log.Printf("Restored %d messages to cache", len(cache.data))
+	log.Printf("Restored cache")
 
 	// Подписка на канал
 	_, err = sc.Subscribe("test-channel", func(m *stan.Msg) {
@@ -101,7 +82,7 @@ func main() {
 
 		// Сохранение в кэш
 		cache.Set(messageID, msgData)
-		log.Printf("Processed message: %s, Cache size: %d", messageID, len(cache.data))
+		log.Printf("Processed message: %s", messageID)
 	}, stan.DurableName("durable"))
 	if err != nil {
 		log.Fatalf("Failed to subscribe: %v", err)
@@ -110,6 +91,7 @@ func main() {
 	log.Println("Subscribed to test-channel")
 
 	// Настройка HTTP-сервера
+	gin.SetMode(gin.ReleaseMode) // Добавляем релизный режим
 	r := gin.Default()
 
 	// Эндпоинт для получения данных по ID
