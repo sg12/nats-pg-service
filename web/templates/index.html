@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Message Viewer</title>
+</head>
+<body>
+    <h1>Message Viewer</h1>
+    <input id="messageId" placeholder="Enter message ID (e.g., test-1, msg-0)">
+    <button onclick="fetchMessage()">Get Message</button>
+    <pre id="result"></pre>
+    <script>
+        async function fetchMessage() {
+            const id = document.getElementById("messageId").value;
+            try {
+                const response = await fetch(`/message/${id}`);
+                const data = await response.json();
+                document.getElementById("result").textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                document.getElementById("result").textContent = "Error: " + error.message;
+            }
+        }
+    </script>
+</body>
+</html>
